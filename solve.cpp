@@ -90,7 +90,6 @@ namespace util {
             return (((uint64_t) low) | ((uint64_t) high << 32ull)) - start;
         }
     };
-
     class XorShift {
         unsigned x, y, z, w; 
     public:    
@@ -114,8 +113,18 @@ namespace util {
         double nextDouble() {
             return next() / 4294967295.0;
         }
+        //参照を返すわけではないので注意
+        template<typename T>
+        T choice(const vector<T> &s) {
+            T val = s[nextInt(len(s))];
+            return val;
+        }
+
     };
+    vector<pi> arr4 = {{-1, 0}, {0, -1}, {1, 0}, {0, 1}};
 }
+util::Timer timer;
+util::XorShift rnd;
 
 namespace inputs {
     int N, T;
@@ -132,7 +141,7 @@ vector<string> symbols = {
     " ", "┥", "┸", "┛",
     "┝", "━", "┗", "┻",
     "┰", "┓", "┃", "┫",
-    "┏", "┳", "┣", "╋"};
+    "┏", "┳", "┣", "╋" };
 
 struct Tile {
     const int id, type;
@@ -149,18 +158,43 @@ struct Tile {
     int is_down() const {
         return (type >> 3) & 1;
     }
-    string get_char() {
-        return symbols[type];
-    }
     friend ostream& operator << (ostream &out, const Tile &tile);
 };
 ostream& operator << (ostream &out, const Tile &tile) {
     out << symbols[tile.type];
     return out;
 }
+vector<Tile> tiles; //タイル一覧 初期位置によってIDが振られている
 
-vector<Tile> tiles;
+void generate_spanning_tree() {
+    vi used(len(tiles));
+    vvi board(N, vi(N)); //IDによってタイルの位置を表す
+    int y = 0, x = 0;
+    while (true) {
+        //現在のマスを配置可能なランダムなタイルで埋める
+        vi cands; //候補
+        for (auto &t: tiles) {
+            if (used)
+            if (x == 0 and t.is_left()) continue;
+            if (y == 0 and t.is_up()) continue;
+            if (x == N-1 and t.is_right()) continue;
+            if (y == N-1 and t.is_down()) continue;
+            cands.push_back(t.id);
+        }
+        Tile &tile = rnd.choice(cands);
+        used[tile.id] = 1;
 
+        vector<pi> nxts;
+        for (auto [vy, vx]: util::arr4) {
+            int ny = y+vy, nx = x+vx;
+            if (ny < 0 or nx < 0 or ny >= N or nx >= N) continue;
+            if (board[ny][nx] == 0) nxts.push_back({ny, nx});
+        }
+        if (nxts.empty()) break;
+        auto [ny, nx] = rnd.choice(nxts);
+        y = ny, x = nx;
+    }
+}
 
 void init() {
     inputs::input();
