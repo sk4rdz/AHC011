@@ -1,5 +1,6 @@
 #pragma region my_template
 #include <algorithm>
+#include <cassert>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -116,12 +117,40 @@ namespace util {
         //参照を返すわけではないので注意
         template<typename T>
         T choice(const vector<T> &s) {
+            assert (len(s) > 0);
             T val = s[nextInt(len(s))];
             return val;
         }
 
     };
+    
     vector<pi> arr4 = {{-1, 0}, {0, -1}, {1, 0}, {0, 1}};
+    struct UnionFind {
+    vi data;
+    UnionFind(int n) : data(n, -1) {}
+    
+    int find(int x) {
+        if (data[x] < 0) return x;
+        return data[x] = find(data[x]);
+    }
+    
+    void unite(int x, int y) {
+        x = find(x), y = find(y);
+        if (x == y) return;
+        if (data[x] > data[y]) swap(x, y);
+        data[x] += data[y];
+        data[y] = x;
+    }
+    
+    bool same(int x, int y) {
+        return find(x) == find(y);
+    }
+    
+    int size(int x) {
+        return -data[find(x)];
+    }
+};
+
 }
 util::Timer timer;
 util::XorShift rnd;
@@ -135,6 +164,7 @@ namespace inputs {
     }
 }
 using inputs::N, inputs::T;
+int idx2(int y, int x) { return y*N+x; }
 
 /*---------------------------------------------*/
 vector<string> symbols = {
@@ -165,47 +195,130 @@ ostream& operator << (ostream &out, const Tile &tile) {
     return out;
 }
 vector<Tile> tiles; //タイル一覧 初期位置によってIDが振られている
+int edge_num = 0; //タイルの線の総数
+
+void visualize_board(vvi &board) {
+    rep(i, N) {
+        rep(j, N) cout << tiles[board[i][j]];        
+        cout << "\n";
+    }
+}
+
+
+
+double eval_tree(vvi &board) {
+    util::UnionFind uf(N*N);
+    rep(y, N) rep(x, N) {
+        if (y > 0 and tiles[board[y][x]].is_up() and tiles[board[y-1][x]].is_down()) uf.unite(idx2(y, x), idx2(y-1, x));
+        if (x > 0 and tiles[board[y][x]].is_left() and tiles[board[y][x-1]].is_right()) uf.unite(idx2(y, x), idx2(y, x-1));
+        if (y < N-1 and tiles[board[y][x]].is_down() and tiles[board[y+1][x]].is_up()) uf.unite(idx2(y, x), idx2(y+1, x));
+        if (x < N-1 and tiles[board[y][x]].is_right() and tiles[board[y][x+1]].is_left()) uf.unite(idx2(y, x), idx2(y, x+1));
+    }
+    vvi count(N, vi(N));
+    int max_size = 0;
+    rep(i, N) rep(j, N) {
+        count[i][j] = uf.size(idx2(i, j));
+        chmax(max_size, count[i][j]);
+    }
+    int score = 0; //最大の木に属すタイルの有効な辺の合計
+    int root = -1;
+    rep(y, N) rep(x, N) {
+        if (count[y][x] != max_size) continue;
+        if (root == -1) root = uf.find(idx2(y, x));
+        else if (root != uf.find(idx2(y, x))) continue;
+
+        if (y > 0 and tiles[board[y][x]].is_up() and tiles[board[y-1][x]].is_down()) score++;
+        if (x > 0 and tiles[board[y][x]].is_left() and tiles[board[y][x-1]].is_right())score++ ;
+        if (y < N-1 and tiles[board[y][x]].is_down() and tiles[board[y+1][x]].is_up()) score++;
+        if (x < N-1 and tiles[board[y][x]].is_right() and tiles[board[y][x+1]].is_left()) score++;
+    }
+    return (double) score / (double) edge_num;
+}
+
+void initialize(vvi &board) {
+    unordered_set<int> used;
+
+    //周りから埋める
+    rep(y, N) rep(x, N) {
+        if (y > 0 and y < N-1 and x > 0 and x < N-1) continue;
+        vi cands;
+        for (auto &tile: tiles) {
+            if (used.count(tile.id) > 0) continue;
+            if (y == 0 and tile.is_up()) continue;
+            if (x == 0 and tile.is_left()) continue;
+            if (y == N-1 and tile.is_down()) continue;
+            if (x == N-1 and tile.is_right()) continue;
+            cands.push_back(tile.id);
+        }
+        int t = rnd.choice(cands);
+        board[y][x] = t;
+        used.insert(t);
+    }
+
+    range(y, 1, N-1) range(x, 1, N-1) {
+        vi cands;
+        for (auto &tile: tiles) {
+            if (used.count(tile.id) > 0) continue;
+            cands.push_back(tile.id);
+        }
+        int t = rnd.choice(cands);
+        board[y][x] = t;
+        used.insert(t);
+    }
+}
 
 void generate_spanning_tree() {
-    vi used(len(tiles));
     vvi board(N, vi(N)); //IDによってタイルの位置を表す
-    int y = 0, x = 0;
-    while (true) {
-        //現在のマスを配置可能なランダムなタイルで埋める
-        vi cands; //候補
-        for (auto &t: tiles) {
-            if (used)
-            if (x == 0 and t.is_left()) continue;
-            if (y == 0 and t.is_up()) continue;
-            if (x == N-1 and t.is_right()) continue;
-            if (y == N-1 and t.is_down()) continue;
-            cands.push_back(t.id);
-        }
-        Tile &tile = rnd.choice(cands);
-        used[tile.id] = 1;
+    initialize(board);
 
-        vector<pi> nxts;
-        for (auto [vy, vx]: util::arr4) {
-            int ny = y+vy, nx = x+vx;
-            if (ny < 0 or nx < 0 or ny >= N or nx >= N) continue;
-            if (board[ny][nx] == 0) nxts.push_back({ny, nx});
-        }
-        if (nxts.empty()) break;
-        auto [ny, nx] = rnd.choice(nxts);
-        y = ny, x = nx;
+    double score = eval_tree(board);
+    print(score);
+    visualize_board(board);
+
+    int loopnum = 100000;
+    int cnt = 0;
+    while (cnt < loopnum) {
+        int v1 = rnd.nextInt(N*N), v2 = rnd.nextInt(N*N);
+        if (v1 == v2) continue;
+        int y1 = v1/N, y2 = v2/N;
+        int x1 = v1%N, x2 = v2%N;
+        int &b1 = board[y1][x1], &b2 = board[y2][x2];
+        if (tiles[b1].type == tiles[b2].type) continue;
+
+        
+        if (y1 == 0 and tiles[b2].is_up()) continue;
+        if (x1 == 0 and tiles[b2].is_left()) continue;
+        if (y1 == N-1 and tiles[b2].is_down()) continue;
+        if (x1 == N-1 and tiles[b2].is_right()) continue;
+
+        if (y2 == 0 and tiles[b1].is_up()) continue;
+        if (x2 == 0 and tiles[b1].is_left()) continue;
+        if (y2 == N-1 and tiles[b1].is_down()) continue;
+        if (x2 == N-1 and tiles[b1].is_right()) continue;
+
+        
+        swap(b1, b2);
+        double nscore = eval_tree(board);
+        double prob = (1.0 - (double)cnt/(double)loopnum) * 0.4;
+        if (score < nscore or rnd.nextDouble() < prob) score = nscore;
+        else swap(b1, b2);
+        cnt++;
     }
+    score = eval_tree(board);
+    print(score);
+    visualize_board(board);
 }
 
 void init() {
     inputs::input();
     rep(i, N) rep(j, N) {
         int type = stoi(string(1, inputs::t[i][j]), nullptr, 16);
-        tiles.push_back(Tile(i*N+j, type));
+        tiles.push_back(Tile(idx2(i, j), type));
+        Tile &t = tiles[idx2(i, j)];
+        edge_num += t.is_left() + t.is_up() + t.is_right() + t.is_down();
     }
-    rep(i, N) {
-        rep(j, N) cout << tiles[i*N+j];        
-        cout << "\n";
-    }
+    print(edge_num);
+    generate_spanning_tree();
 }
 
 int main() {
