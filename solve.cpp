@@ -1,4 +1,4 @@
-//#define DEBUG_MODE
+#define DEBUG_MODE
 
 #pragma region my_template
 #include <algorithm>
@@ -244,6 +244,7 @@ void dump_board(vvi &board) {
 
 namespace solve1 {
 
+    struct State;
     struct Action {
         int y, x, tile_type, pred;
         double next_score;
@@ -279,7 +280,7 @@ namespace solve1 {
         bool operator < ( const State &_ ) const {
             return 0;
         }
-        void update(Action act, int step) {
+        void update(Action act) {
             assert(!act.is_empty());
             remain_tile[act.tile_type]--;
             board[act.y][act.x] = act.tile_type;
@@ -430,26 +431,27 @@ namespace solve1 {
         while(!pq.empty()) {
             step++;
             priority_queue<pair<Action, State>> nq;
-            vector<State> states(BEAM_WIDTH);
+            
+
             rep(i, BEAM_WIDTH) {
                 if (pq.empty()) break;
-                dump(step, i);
+                dump("step:", step, "-", i);
                 auto [act, p_state] = pq.top(); pq.pop();
                 dump(act);
-                states[i] = State(p_state.board, p_state.remain_tile, p_state.q, p_state.count, p_state.score);
+                State state = p_state;
 
-                states[i].update(act, step);
+                state.update(act);
 
-                dump_board(states[i].board);
+                dump_board(state.board);
 
                 //埋まってれば結果に入れる
-                if (states[i].count == L-1) {
-                    result.push_back(states[i]);
+                if (state.count == L-1) {
+                    result.push_back(state);
                 }
-                if (states[i].q.empty()) continue;
-                auto [v, pd] = states[i].q.front(); states[i].q.pop();
-                for (Action &next_act: get_next_acts(states[i], v, pd)) {
-                    nq.push({next_act, states[i]});
+                if (state.q.empty()) continue;
+                auto [v, pd] = state.q.front(); state.q.pop();
+                for (Action &next_act: get_next_acts(state, v, pd)) {
+                    nq.push({next_act, state});
                 }
             }
             pq = nq;
@@ -460,10 +462,10 @@ namespace solve1 {
     void generate_spanning_tree() {
 
         vector<State> l;
-        for (auto &s: search(0, 0)) l.push_back(s);
+        for (auto &s: search(0, 0)) l.push_back(s);/* 
         for (auto &s: search(0, N-1)) l.push_back(s);
         for (auto &s: search(N-1, 0)) l.push_back(s);
-        for (auto &s: search(N-1, N-1)) l.push_back(s);
+        for (auto &s: search(N-1, N-1)) l.push_back(s); */
         for (auto &s: l) {
             double score = eval_tree(s.board);
             print(score);
