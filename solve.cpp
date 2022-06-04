@@ -1,3 +1,5 @@
+// #define DEBUG_MODE
+
 #pragma region my_template
 #include <algorithm>
 #include <cassert>
@@ -59,7 +61,12 @@ inline void print(const T &t, const U &...u) {
     if (sizeof...(u)) cout << " ";
     print(u...);
 }
+
+#ifdef DEBUG_MODE
 ofstream dout("./dump.txt");
+#else
+ofstream dout("/dev/null");
+#endif
 
 inline void dump() { dout << endl; }
 template <typename T, typename ...U>
@@ -177,13 +184,16 @@ vector<string> symbols = {
     "┏", "┳", "┣", "╋", "o" };
 
 struct Tile {
-    static const int LEFT = 1;
-    static const int UP = 2;
-    static const int RIGHT = 4;
-    static const int DOWN = 8;
+    enum Type {
+        BLANK, LEFT, UP, LU,
+        RIGHT, LR, UR, LUR,
+        DOWN, LD, UD, LUD,
+        RD, LRD, URD, LURD, RES
+    };
 
-    const int id, type;
-    Tile(const int id, const int type) : id(id), type(type) {}
+    const int id;
+    const Type type;
+    Tile(const int id, const Type type) : id(id), type(type) {}
     
     static int is_left(int t) {
         return t & 1;
@@ -197,6 +207,9 @@ struct Tile {
     static int is_down(int t) {
         return (t >> 3) & 1;
     }
+    static int edge_num(int t) {
+        return is_left(t) + is_up(t) + is_right(t) + is_down(t);
+    }
     friend ostream& operator << (ostream &out, const Tile &tile);
 };
 ostream& operator << (ostream &out, const Tile &tile) {
@@ -204,7 +217,7 @@ ostream& operator << (ostream &out, const Tile &tile) {
     return out;
 }
 vector<Tile> tiles; //タイル一覧 初期位置によってIDが振られている
-int edge_num = 0; //タイルの線の総数
+int all_edge_num = 0; //タイルの線の総数
 
 void visualize_board(vvi &board) {
     rep(i, N) {
@@ -225,7 +238,6 @@ namespace solve1 {
 
     struct State {
         vvi board; //タイルの種類によって盤面を表す
-        const int RES = 16; //予約済みのマスを表す
         vi remain_tile; //種類別の使用していないタイルの数
         queue<pi> q; //{ 現在のマス(一次元), 前回のマスの方向(LURD) }
         State() {
@@ -243,29 +255,33 @@ namespace solve1 {
                 put(v, pd);
                 if (pd != 0 and Tile::is_left(board[y][x])) {
                     q.push({idx2(y, x-1), 2});
-                    board[y][x-1] = RES;
+                    board[y][x-1] = Tile::Type::RES;
                 }
                 if (pd != 1 and Tile::is_up(board[y][x])) {
                     q.push({idx2(y-1, x), 3});
-                    board[y-1][x] = RES;
+                    board[y-1][x] = Tile::Type::RES;
                 }
                 if (pd != 2 and Tile::is_right(board[y][x])) {
                     q.push({idx2(y, x+1), 0});
-                    board[y][x+1] = RES;
+                    board[y][x+1] = Tile::Type::RES;
                 }
                 if (pd != 3 and Tile::is_down(board[y][x])) {
                     q.push({idx2(y+1, x), 1});
-                    board[y+1][x] = RES;
+                    board[y+1][x] = Tile::Type::RES;
                 }
-                //dump_board(board);
+
+                dump_board(board);
+                
             }
         }
         void put(int v, int pd) {
             auto [cy, cx] = idx2(v);
-            
-            vi cand1; //置くタイルの種類の候補(辺数1)
-            vi cand_mul; //置くタイルの種類の候補(辺数2以上)
+
+            vector<double> cand_score(16);
+
+ 
             range(t, 1, 16) {
+                if (remain_tile[t] == 0) continue;
 
                 //前のマスと繋がっているか
                 if (pd == 0 and !Tile::is_left(t)) continue;
@@ -273,49 +289,70 @@ namespace solve1 {
                 if (pd == 2 and !Tile::is_right(t)) continue;
                 if (pd == 3 and !Tile::is_down(t)) continue;
 
-                //繋げる先に空きがあるか
-                if (pd != 0 and Tile::is_left(t) and !(cx > 0 and board[cy][cx-1] == 0)) continue;
-                if (pd != 1 and Tile::is_up(t) and !(cy > 0 and board[cy-1][cx] == 0)) continue;
-                if (pd != 2 and Tile::is_right(t) and !(cx < N-1 and board[cy][cx+1] == 0)) continue;
-                if (pd != 3 and Tile::is_down(t) and !(cy < N-1 and board[cy+1][cx] == 0)) continue;
-                if (remain_tile[t] > 0) {
-                    int e_num = Tile::is_left(t) + Tile::is_up(t) + Tile::is_right(t) + Tile::is_down(t);
-                    if (e_num > 1) cand_mul.push_back(t);
-                    else cand1.push_back(t);
-                }
-            }
-            vi &cand = cand_mul;
-            if (len(q) >= 1 or cand.empty() or pd == -1) {
-                for (auto &x: cand1) cand.push_back(x);
-            }
-            
-            // どこにも行けない場合、辺一本のタイルに変更する
-            if (cand.empty()) {
-                
-                if (pd == 0 and remain_tile[Tile::LEFT] > 0) {
-                    remain_tile[board[cy][cx-1]]++;
-                    board[cy][cx-1] = Tile::LEFT;
-                    remain_tile[Tile::LEFT]--;
-                }
-                if (pd == 1 and remain_tile[Tile::UP] > 0) {
-                    remain_tile[board[cy-1][cx]]++;
-                    board[cy-1][cx] = Tile::UP;
-                    remain_tile[Tile::UP]--;
-                }
-                if (pd == 2 and remain_tile[Tile::RIGHT] > 0) {
-                    remain_tile[board[cy][cx+1]]++;
-                    board[cy][cx+1] = Tile::RIGHT;
-                    remain_tile[Tile::RIGHT]--;
-                }
-                if (pd == 3 and remain_tile[Tile::DOWN] > 0) {
-                    remain_tile[board[cy+1][cx]]++;
-                    board[cy+1][cx] = Tile::DOWN;
-                    remain_tile[Tile::DOWN]--;
-                } 
-                return;
-            }
+                double score = Tile::edge_num(t);
+                const double ads = 0.5;
 
-            int choose_t = rnd.choice(cand);
+                //繋げる先の評価
+                if (pd != 0 and Tile::is_left(t)) {
+                    if (cx > 0 and board[cy][cx-1] == 0) {
+                        for (auto [vy, vx]: util::arr4) {
+                            int ny = cy+vy, nx = cx-1+vx;
+                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
+                        }
+                    } else {
+                        score = 0;
+                        continue;
+                    }
+                }
+                if (pd != 1 and Tile::is_up(t)) {
+                    if (cy > 0 and board[cy-1][cx] == 0) {
+                        for (auto [vy, vx]: util::arr4) {
+                            int ny = cy-1+vy, nx = cx+vx;
+                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
+                        } 
+                    } else {
+                        score = 0;
+                        continue;
+                    }
+                }
+                if (pd != 2 and Tile::is_right(t)) {
+                    if (cx < N-1 and board[cy][cx+1] == 0) {
+                        for (auto [vy, vx]: util::arr4) {
+                            int ny = cy+vy, nx = cx+1+vx;
+                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
+                        } 
+                    } else {
+                        score = 0;
+                        continue;
+                    }
+                }
+                if (pd != 3 and Tile::is_down(t)) {
+                    if (cy < N-1 and board[cy+1][cx] == 0) {
+                        for (auto [vy, vx]: util::arr4) {
+                            int ny = cy+1+vy, nx = cx+vx;
+                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
+                        } 
+                    } else {
+                        score = 0;
+                        continue;
+                    }
+                }
+                cand_score[t] = score + rnd.nextDouble() * 0.01;
+            }
+            vector<pair<double, int>> cands;
+            rep(i, 16) {
+                if (cand_score[i] != 0) cands.push_back({cand_score[i], i});
+            }
+            if (cands.empty()) return;
+            sort(rall(cands));
+            
+            rep(i, len(cands)) dump(cands[i]);
+
+            int choose_t = cands[rnd.nextInt(min(len(cands), 2))].second;
             remain_tile[choose_t]--;
             board[cy][cx] = choose_t;
         }
@@ -347,7 +384,7 @@ namespace solve1 {
             if (y < N-1 and Tile::is_down(board[y][x]) and Tile::is_up(board[y+1][x])) score++;
             if (x < N-1 and Tile::is_right(board[y][x]) and Tile::is_left(board[y][x+1])) score++;
         }
-        return (double) score / (double) edge_num;
+        return (double) score / (double) all_edge_num;
     }
 
     double generate_spanning_tree() {
@@ -366,12 +403,12 @@ void init() {
     L = N*N;
     rep(i, N) rep(j, N) {
         int type = stoi(string(1, inputs::t[i][j]), nullptr, 16);
-        tiles.push_back(Tile(idx2(i, j), type));
+        tiles.push_back(Tile(idx2(i, j), (Tile::Type)type));
         Tile &t = tiles[idx2(i, j)];
-        edge_num += Tile::is_left(t.type) + Tile::is_up(t.type) + Tile::is_right(t.type) + Tile::is_down(t.type);
+        all_edge_num += Tile::edge_num(t.type);
     }
-    tiles.push_back(Tile(-1, 0));
-    int n = 10000;
+    tiles.push_back(Tile(-1, Tile::Type::BLANK));
+    int n = 1000;
     double s = 0;
     double m = 0;
     rep(_, n) {
