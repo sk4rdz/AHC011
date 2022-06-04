@@ -1,4 +1,4 @@
-// #define DEBUG_MODE
+#define DEBUG_MODE
 
 #pragma region my_template
 #include <algorithm>
@@ -236,10 +236,22 @@ void dump_board(vvi &board) {
 
 namespace solve1 {
 
+    struct Action {
+        int y, x, tile_type, pred;
+        double next_score;
+        Action(int y, int x, int tile_type, int pred, double score) : y(y), x(x), tile_type(tile_type), pred(pred), next_score(score) {}
+        Action() : y(-1) {}
+        bool is_empty() { return y == -1; }
+        bool operator < ( const Action &r ) const {
+            return next_score < r.next_score;
+        }
+    };
+
     struct State {
         vvi board; //タイルの種類によって盤面を表す
         vi remain_tile; //種類別の使用していないタイルの数
         queue<pi> q; //{ 現在のマス(一次元), 前回のマスの方向(LURD) }
+        double score;
         State() {
             board = vvi(N, vi(N));
             remain_tile = vi(16);
@@ -247,116 +259,107 @@ namespace solve1 {
                 remain_tile[t.type]++;
             }
             q.push({0, -1});
+            score = 0;
         }
-        void search() {
-            while (!q.empty()) {
-                auto [v, pd] = q.front(); q.pop();
-                auto [y, x] = idx2(v);
-                put(v, pd);
-                if (pd != 0 and Tile::is_left(board[y][x])) {
-                    q.push({idx2(y, x-1), 2});
-                    board[y][x-1] = Tile::Type::RES;
-                }
-                if (pd != 1 and Tile::is_up(board[y][x])) {
-                    q.push({idx2(y-1, x), 3});
-                    board[y-1][x] = Tile::Type::RES;
-                }
-                if (pd != 2 and Tile::is_right(board[y][x])) {
-                    q.push({idx2(y, x+1), 0});
-                    board[y][x+1] = Tile::Type::RES;
-                }
-                if (pd != 3 and Tile::is_down(board[y][x])) {
-                    q.push({idx2(y+1, x), 1});
-                    board[y+1][x] = Tile::Type::RES;
-                }
-
-                dump_board(board);
-                
-            }
-        }
-        void put(int v, int pd) {
-            auto [cy, cx] = idx2(v);
-
-            vector<double> cand_score(16);
-
- 
-            range(t, 1, 16) {
-                if (remain_tile[t] == 0) continue;
-
-                //前のマスと繋がっているか
-                if (pd == 0 and !Tile::is_left(t)) continue;
-                if (pd == 1 and !Tile::is_up(t)) continue;
-                if (pd == 2 and !Tile::is_right(t)) continue;
-                if (pd == 3 and !Tile::is_down(t)) continue;
-
-                double score = Tile::edge_num(t);
-                const double ads = 0.5;
-
-                //繋げる先の評価
-                if (pd != 0 and Tile::is_left(t)) {
-                    if (cx > 0 and board[cy][cx-1] == 0) {
-                        for (auto [vy, vx]: util::arr4) {
-                            int ny = cy+vy, nx = cx-1+vx;
-                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
-                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
-                        }
-                    } else {
-                        score = 0;
-                        continue;
-                    }
-                }
-                if (pd != 1 and Tile::is_up(t)) {
-                    if (cy > 0 and board[cy-1][cx] == 0) {
-                        for (auto [vy, vx]: util::arr4) {
-                            int ny = cy-1+vy, nx = cx+vx;
-                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
-                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
-                        } 
-                    } else {
-                        score = 0;
-                        continue;
-                    }
-                }
-                if (pd != 2 and Tile::is_right(t)) {
-                    if (cx < N-1 and board[cy][cx+1] == 0) {
-                        for (auto [vy, vx]: util::arr4) {
-                            int ny = cy+vy, nx = cx+1+vx;
-                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
-                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
-                        } 
-                    } else {
-                        score = 0;
-                        continue;
-                    }
-                }
-                if (pd != 3 and Tile::is_down(t)) {
-                    if (cy < N-1 and board[cy+1][cx] == 0) {
-                        for (auto [vy, vx]: util::arr4) {
-                            int ny = cy+1+vy, nx = cx+vx;
-                            if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
-                            else if (board[ny][nx] != 0 and board[ny][nx] != Tile::Type::RES) score += ads;
-                        } 
-                    } else {
-                        score = 0;
-                        continue;
-                    }
-                }
-                cand_score[t] = score + rnd.nextDouble() * 0.01;
-            }
-            vector<pair<double, int>> cands;
-            rep(i, 16) {
-                if (cand_score[i] != 0) cands.push_back({cand_score[i], i});
-            }
-            if (cands.empty()) return;
-            sort(rall(cands));
+        void update(Action act) {
+            assert(!act.is_empty());
+            remain_tile[act.tile_type]--;
+            board[act.y][act.x] = act.tile_type;
             
-            rep(i, len(cands)) dump(cands[i]);
-
-            int choose_t = cands[rnd.nextInt(min(len(cands), 2))].second;
-            remain_tile[choose_t]--;
-            board[cy][cx] = choose_t;
+            if (act.pred != 0 and Tile::is_left(board[act.y][act.x])) {
+                q.push({idx2(act.y, act.x-1), 2});
+                board[act.y][act.x-1] = Tile::Type::RES;
+            }
+            if (act.pred != 1 and Tile::is_up(board[act.y][act.x])) {
+                q.push({idx2(act.y-1, act.x), 3});
+                board[act.y-1][act.x] = Tile::Type::RES;
+            }
+            if (act.pred != 2 and Tile::is_right(board[act.y][act.x])) {
+                q.push({idx2(act.y, act.x+1), 0});
+                board[act.y][act.x+1] = Tile::Type::RES;
+            }
+            if (act.pred != 3 and Tile::is_down(board[act.y][act.x])) {
+                q.push({idx2(act.y+1, act.x), 1});
+                board[act.y+1][act.x] = Tile::Type::RES;
+            }
+            score = act.next_score;
+            dump(score);
+            dump_board(board);
         }
     };
+
+    vector<Action> get_next_acts(State &state, int v, int pd) {
+        auto [cy, cx] = idx2(v);
+        vector<double> cand_score(16);
+
+        range(t, 1, 16) {
+            if (state.remain_tile[t] == 0) continue;
+            //前のマスと繋がっているか
+            if (pd == 0 and !Tile::is_left(t)) continue;
+            if (pd == 1 and !Tile::is_up(t)) continue;
+            if (pd == 2 and !Tile::is_right(t)) continue;
+            if (pd == 3 and !Tile::is_down(t)) continue;
+            double score = Tile::edge_num(t);
+            const double ads = 0.9;
+            //繋げる先の評価
+            if (pd != 0 and Tile::is_left(t)) {
+                if (cx > 0 and state.board[cy][cx-1] == 0) {
+                    for (auto [vy, vx]: util::arr4) {
+                        int ny = cy+vy, nx = cx-1+vx;
+                        if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                        else if (state.board[ny][nx] != 0 and state.board[ny][nx] != Tile::Type::RES) score += ads;
+                    }
+                } else {
+                    score = 0;
+                    continue;
+                }
+            }
+            if (pd != 1 and Tile::is_up(t)) {
+                if (cy > 0 and state.board[cy-1][cx] == 0) {
+                    for (auto [vy, vx]: util::arr4) {
+                        int ny = cy-1+vy, nx = cx+vx;
+                        if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                        else if (state.board[ny][nx] != 0 and state.board[ny][nx] != Tile::Type::RES) score += ads;
+                    } 
+                } else {
+                    score = 0;
+                    continue;
+                }
+            }
+            if (pd != 2 and Tile::is_right(t)) {
+                if (cx < N-1 and state.board[cy][cx+1] == 0) {
+                    for (auto [vy, vx]: util::arr4) {
+                        int ny = cy+vy, nx = cx+1+vx;
+                        if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                        else if (state.board[ny][nx] != 0 and state.board[ny][nx] != Tile::Type::RES) score += ads;
+                    } 
+                } else {
+                    score = 0;
+                    continue;
+                }
+            }
+            if (pd != 3 and Tile::is_down(t)) {
+                if (cy < N-1 and state.board[cy+1][cx] == 0) {
+                    for (auto [vy, vx]: util::arr4) {
+                        int ny = cy+1+vy, nx = cx+vx;
+                        if (nx < 0 or ny < 0 or nx >= N or ny >= N) score += ads;
+                        else if (state.board[ny][nx] != 0 and state.board[ny][nx] != Tile::Type::RES) score += ads;
+                    } 
+                } else {
+                    score = 0;
+                    continue;
+                }
+            }
+            cand_score[t] = score + rnd.nextDouble() * 0.01;
+        }
+        vector<Action> acts;
+        rep(i, 16) {
+            if (cand_score[i] != 0) acts.push_back(Action(cy, cx, i, pd, state.score + cand_score[i]));
+        }
+
+        return acts;
+    }
+    
     
     double eval_tree(vvi &board) {
         util::UnionFind uf(L);
@@ -387,12 +390,26 @@ namespace solve1 {
         return (double) score / (double) all_edge_num;
     }
 
+    void search(State &state) {
+        rep(step, L-1) {
+            if (state.q.empty()) break;
+            auto [v, pd] = state.q.front(); state.q.pop();
+            vector<Action> acts = get_next_acts(state, v, pd);
+            if (acts.empty()) continue;
+            sort(rall(acts));
+            Action act = acts[rnd.nextInt(min(len(acts), 2))];
+            state.update(act);
+        }
+    }
+
     double generate_spanning_tree() {
         State s = State();
-        s.search();
+        search(s);
         double score = eval_tree(s.board);
-        if (score == 1)
+        if (score == 1) {
         visualize_board(s.board);
+        print(s.score);
+        }
 
         return score;
     }
@@ -408,7 +425,7 @@ void init() {
         all_edge_num += Tile::edge_num(t.type);
     }
     tiles.push_back(Tile(-1, Tile::Type::BLANK));
-    int n = 1000;
+    int n = 1;
     double s = 0;
     double m = 0;
     rep(_, n) {
