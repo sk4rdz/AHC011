@@ -6,6 +6,7 @@
 #include <iterator>
 #include <map>
 #include <queue>
+#include <stack>
 #include <string>
 #include <tuple>
 #include <unordered_set>
@@ -170,12 +171,17 @@ pi idx2(int i) {return {i/N, i%N}; }
 
 /*---------------------------------------------*/
 vector<string> symbols = {
-    " ", "┥", "┸", "┛",
+    "▓", "┥", "┸", "┛",
     "┝", "━", "┗", "┻",
     "┰", "┓", "┃", "┫",
     "┏", "┳", "┣", "╋", "o" };
 
 struct Tile {
+    static const int LEFT = 1;
+    static const int UP = 2;
+    static const int RIGHT = 4;
+    static const int DOWN = 8;
+
     const int id, type;
     Tile(const int id, const int type) : id(id), type(type) {}
     
@@ -205,12 +211,14 @@ void visualize_board(vvi &board) {
         rep(j, N) cout << symbols[board[i][j]];        
         cout << "\n";
     }
+    print("---------------");
 }
 void dump_board(vvi &board) {
     rep(i, N) {
         rep(j, N) dout << symbols[board[i][j]];        
         dout << endl;
     }
+    dump("---------------");
 }
 
 namespace solve1 {
@@ -232,7 +240,6 @@ namespace solve1 {
             while (!q.empty()) {
                 auto [v, pd] = q.front(); q.pop();
                 auto [y, x] = idx2(v);
-                dump(y, x, pd);
                 put(v, pd);
                 if (pd != 0 and Tile::is_left(board[y][x])) {
                     q.push({idx2(y, x-1), 2});
@@ -250,7 +257,7 @@ namespace solve1 {
                     q.push({idx2(y+1, x), 1});
                     board[y+1][x] = RES;
                 }
-                
+                //dump_board(board);
             }
         }
         void put(int v, int pd) {
@@ -277,19 +284,40 @@ namespace solve1 {
                     else cand1.push_back(t);
                 }
             }
-            sort(all(cand1)); uni(cand1);
-            sort(all(cand_mul)); uni(cand_mul);
             vi &cand = cand_mul;
-            if (len(q) >= 1 or cand.empty()) {
+            if (len(q) >= 1 or cand.empty() or pd == -1) {
                 for (auto &x: cand1) cand.push_back(x);
             }
-            if (cand.empty()) return;
+            
+            // どこにも行けない場合、辺一本のタイルに変更する
+            if (cand.empty()) {
+                
+                if (pd == 0 and remain_tile[Tile::LEFT] > 0) {
+                    remain_tile[board[cy][cx-1]]++;
+                    board[cy][cx-1] = Tile::LEFT;
+                    remain_tile[Tile::LEFT]--;
+                }
+                if (pd == 1 and remain_tile[Tile::UP] > 0) {
+                    remain_tile[board[cy-1][cx]]++;
+                    board[cy-1][cx] = Tile::UP;
+                    remain_tile[Tile::UP]--;
+                }
+                if (pd == 2 and remain_tile[Tile::RIGHT] > 0) {
+                    remain_tile[board[cy][cx+1]]++;
+                    board[cy][cx+1] = Tile::RIGHT;
+                    remain_tile[Tile::RIGHT]--;
+                }
+                if (pd == 3 and remain_tile[Tile::DOWN] > 0) {
+                    remain_tile[board[cy+1][cx]]++;
+                    board[cy+1][cx] = Tile::DOWN;
+                    remain_tile[Tile::DOWN]--;
+                } 
+                return;
+            }
 
             int choose_t = rnd.choice(cand);
-            dump(cy, cx, choose_t);
             remain_tile[choose_t]--;
             board[cy][cx] = choose_t;
-            dump_board(board);
         }
     };
     
@@ -322,14 +350,14 @@ namespace solve1 {
         return (double) score / (double) edge_num;
     }
 
-    void generate_spanning_tree() {
-
+    double generate_spanning_tree() {
         State s = State();
         s.search();
-        for (const auto &_l: s.board) print(_l);
         double score = eval_tree(s.board);
-        print(score);
+        if (score == 1)
         visualize_board(s.board);
+
+        return score;
     }
 }
 
@@ -343,7 +371,15 @@ void init() {
         edge_num += Tile::is_left(t.type) + Tile::is_up(t.type) + Tile::is_right(t.type) + Tile::is_down(t.type);
     }
     tiles.push_back(Tile(-1, 0));
-    solve1::generate_spanning_tree();
+    int n = 10000;
+    double s = 0;
+    double m = 0;
+    rep(_, n) {
+        double score = solve1::generate_spanning_tree();
+        s += score; chmax(m, score);
+    }
+    print(s / (double)n, m);
+    print("sec:", timer.get());
 }
 
 int main() {
