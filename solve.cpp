@@ -244,7 +244,6 @@ void dump_board(vvi &board) {
 
 namespace solve1 {
 
-    struct State;
     struct Action {
         int y, x, tile_type, pred;
         double next_score;
@@ -275,10 +274,6 @@ namespace solve1 {
                 remain_tile[t.type]++;
             }
             score = 0;
-        }
-        
-        bool operator < ( const State &_ ) const {
-            return 0;
         }
         void update(Action act) {
             assert(!act.is_empty());
@@ -422,39 +417,41 @@ namespace solve1 {
     vector<State> search(int sy, int sx) {
         vector<State> result;
 
-        priority_queue<pair<Action, State>> pq;
+        priority_queue<pair<Action, int>> pq;
         State init_state = State();
         for (Action act: get_next_acts(init_state, idx2(sy, sx), -1)) {
-            pq.push({act, State()});
+            pq.push({act, 0});
         }
         int step = 0;
+        vector<State> prev_states = {State()};
+
         while(!pq.empty()) {
             step++;
-            priority_queue<pair<Action, State>> nq;
-            
-
+            priority_queue<pair<Action, int>> nq;
+            vector<State> states;
             rep(i, BEAM_WIDTH) {
                 if (pq.empty()) break;
                 dump("step:", step, "-", i);
-                auto [act, p_state] = pq.top(); pq.pop();
+                auto [act, prev_s_idx] = pq.top(); pq.pop();
                 dump(act);
-                State state = p_state;
+                states.push_back(prev_states[prev_s_idx]);
 
-                state.update(act);
+                states[i].update(act);
 
-                dump_board(state.board);
+                dump_board(states[i].board);
 
                 //埋まってれば結果に入れる
-                if (state.count == L-1) {
-                    result.push_back(state);
+                if (states[i].count == L-1) {
+                    result.push_back(states[i]);
                 }
-                if (state.q.empty()) continue;
-                auto [v, pd] = state.q.front(); state.q.pop();
-                for (Action &next_act: get_next_acts(state, v, pd)) {
-                    nq.push({next_act, state});
+                if (states[i].q.empty()) continue;
+                auto [v, pd] = states[i].q.front(); states[i].q.pop();
+                for (Action &next_act: get_next_acts(states[i], v, pd)) {
+                    nq.push({next_act, i});
                 }
             }
             pq = nq;
+            prev_states = states;
         }
         return result;
     }
