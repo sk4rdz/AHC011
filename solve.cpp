@@ -1,4 +1,4 @@
-#define DEBUG_MODE
+//#define DEBUG_MODE
 
 #pragma region my_template
 #include <algorithm>
@@ -60,6 +60,14 @@ inline void print(const T &t, const U &...u) {
     cout << t;
     if (sizeof...(u)) cout << " ";
     print(u...);
+}
+
+inline void printnl() { cout << " "; }
+template <typename T, typename ...U>
+inline void printnl(const T &t, const U &...u) {
+    cout << t;
+    if (sizeof...(u)) cout << " ";
+    printnl(u...);
 }
 
 #ifdef DEBUG_MODE
@@ -245,23 +253,33 @@ namespace solve1 {
         bool operator < ( const Action &r ) const {
             return next_score < r.next_score;
         }
+        friend ostream& operator << (ostream &out, const Action &action);
     };
+    ostream& operator << (ostream &out, const Action &act) {
+        out << "[" << act.y << ", " << act.x << "] type:" << act.tile_type;
+        return out;
+    }
 
     struct State {
         vvi board; //タイルの種類によって盤面を表す
         vi remain_tile; //種類別の使用していないタイルの数
         queue<pi> q; //{ 現在のマス(一次元), 前回のマスの方向(LURD) }
+        int count = 0;
         double score;
+        State(vvi board, vi remain_tile, queue<pi> q, int count, double score) : board(board), remain_tile(remain_tile), q(q), count(count), score(score) {}
         State() {
             board = vvi(N, vi(N));
             remain_tile = vi(16);
             for (Tile &t: tiles) {
                 remain_tile[t.type]++;
             }
-            q.push({0, -1});
             score = 0;
         }
-        void update(Action act) {
+        
+        bool operator < ( const State &_ ) const {
+            return 0;
+        }
+        void update(Action act, int step) {
             assert(!act.is_empty());
             remain_tile[act.tile_type]--;
             board[act.y][act.x] = act.tile_type;
@@ -282,11 +300,19 @@ namespace solve1 {
                 q.push({idx2(act.y+1, act.x), 1});
                 board[act.y+1][act.x] = Tile::Type::RES;
             }
+            count++;
             score = act.next_score;
-            dump(score);
-            dump_board(board);
         }
+        friend ostream& operator << (ostream &out, const State &s);
     };
+    ostream& operator << (ostream &out, const State &s) {
+        rep(i, N) {
+            rep(j, N) out << symbols[s.board[i][j]];        
+            out << endl;
+        }
+        out << "---------------" << endl;
+        return out;
+    }
 
     vector<Action> get_next_acts(State &state, int v, int pd) {
         auto [cy, cx] = idx2(v);
@@ -390,28 +416,61 @@ namespace solve1 {
         return (double) score / (double) all_edge_num;
     }
 
-    void search(State &state) {
-        rep(step, L-1) {
-            if (state.q.empty()) break;
-            auto [v, pd] = state.q.front(); state.q.pop();
-            vector<Action> acts = get_next_acts(state, v, pd);
-            if (acts.empty()) continue;
-            sort(rall(acts));
-            Action act = acts[rnd.nextInt(min(len(acts), 2))];
-            state.update(act);
+    const int BEAM_WIDTH = 150;
+
+    vector<State> search(int sy, int sx) {
+        vector<State> result;
+
+        priority_queue<pair<Action, State>> pq;
+        State init_state = State();
+        for (Action act: get_next_acts(init_state, idx2(sy, sx), -1)) {
+            pq.push({act, State()});
         }
+        int step = 0;
+        while(!pq.empty()) {
+            step++;
+            priority_queue<pair<Action, State>> nq;
+            vector<State> states(BEAM_WIDTH);
+            rep(i, BEAM_WIDTH) {
+                if (pq.empty()) break;
+                dump(step, i);
+                auto [act, p_state] = pq.top(); pq.pop();
+                dump(act);
+                states[i] = State(p_state.board, p_state.remain_tile, p_state.q, p_state.count, p_state.score);
+
+                states[i].update(act, step);
+
+                dump_board(states[i].board);
+
+                //埋まってれば結果に入れる
+                if (states[i].count == L-1) {
+                    result.push_back(states[i]);
+                }
+                if (states[i].q.empty()) continue;
+                auto [v, pd] = states[i].q.front(); states[i].q.pop();
+                for (Action &next_act: get_next_acts(states[i], v, pd)) {
+                    nq.push({next_act, states[i]});
+                }
+            }
+            pq = nq;
+        }
+        return result;
     }
 
-    double generate_spanning_tree() {
-        State s = State();
-        search(s);
-        double score = eval_tree(s.board);
-        if (score == 1) {
-        visualize_board(s.board);
-        print(s.score);
-        }
+    void generate_spanning_tree() {
 
-        return score;
+        vector<State> l;
+        for (auto &s: search(0, 0)) l.push_back(s);
+        for (auto &s: search(0, N-1)) l.push_back(s);
+        for (auto &s: search(N-1, 0)) l.push_back(s);
+        for (auto &s: search(N-1, N-1)) l.push_back(s);
+        for (auto &s: l) {
+            double score = eval_tree(s.board);
+            print(score);
+            if (score == 1) {
+                visualize_board(s.board);
+            }
+        }
     }
 }
 
@@ -425,14 +484,8 @@ void init() {
         all_edge_num += Tile::edge_num(t.type);
     }
     tiles.push_back(Tile(-1, Tile::Type::BLANK));
-    int n = 1;
-    double s = 0;
-    double m = 0;
-    rep(_, n) {
-        double score = solve1::generate_spanning_tree();
-        s += score; chmax(m, score);
-    }
-    print(s / (double)n, m);
+
+    solve1::generate_spanning_tree();
     print("sec:", timer.get());
 }
 
